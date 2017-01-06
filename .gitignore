@@ -1,0 +1,6 @@
+docker-compose.yml
+ingress.yml
+combats-deployment-local.yaml
+password.txt
+username.txt
+.idea

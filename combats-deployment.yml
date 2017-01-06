@@ -1,0 +1,110 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: combats
+spec:
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      name: combats
+      labels:
+        app: combats
+    spec:
+      containers:
+      - name: combats
+      image: gcr.io/combats-151306/combats:0.1.0
+      ports:
+        - containerPort: 8080
+        name: combats
+      env:
+        - name: COMBATS_DB_HOST
+          value: combats-mysql
+        - name: COMBATS_DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: mysql-pass
+              key: password.txt
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: combats-service
+spec:
+  selector:
+    app: combats
+  ports:
+    protocol: TCP
+    port: 80
+    targetPort: 8080
+
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: combats-mysql
+  labels:
+    app: combats
+  spec:
+    ports:
+    - port: 3306
+    selector:
+      app: combats
+      tier: mysql
+    clusterIP: None
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pv-claim
+  labels:
+    app: combats
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: combats-mysql
+  labels:
+    app: combats
+  spec:
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: combats
+          tier: mysql
+      spec:
+        containers:
+        - image: mysql:5.6
+          name: mysql
+          env:
+          - name: MYSQL_ROOT_PASSWORD
+            valueFrom:
+              secretKeyref:
+                name: mysql-pass
+                key: password.txt
+          ports:
+          - containerPort: 3306
+            name: mysql
+          volumeMounts:
+          - name: mysql-persistent-storage
+            mountPath: /var/lib/mysql
+        volumes:
+        - name: mysql-persistent-storage
+          persistentVolumeClaim:
+            claimName: mysql-pv-claim
