@@ -1,32 +1,23 @@
 from flask import Flask, jsonify, request, redirect, session, _app_ctx_stack
 from datetime import  datetime
 import reports
-import os
-import threading
-import sys
-import yaml
-import time
-import os
+import os, json
+import errors
 
 
 app = Flask(__name__)
 app.secret_key = "MysteriousCapybara"
-DATA_DIR = "./data"
 host = os.getenv("COMBATS_DB_HOST", "localhost")
 user = os.getenv("COMBATS_DB_USER", "root")
 passwd = os.getenv("COMBATS_DB_PASS", None)
 reports_collection = reports.ReportCollection(host, user, passwd)
+apphost = os.getenv("APPHOST", "localhost")
 
-def player_update_daemon():
-    while True:
-        file = open(os.path.join(DATA_DIR, "player_keys.yml"))
-        players = yaml.safe_load(file)
-        for i in players['players']:
-            reports.get_all_reports(i, reports_collection)
-        time.sleep(120)
-
-def server_thread():
-    app.run(debug=True)
+@app.errorhandler(errors.DatabaseError)
+def handle_database_error(error):
+    response = jsonify(error.to_dict())
+    response.status_code = error.status_code
+    return response
 
 @app.route('/', methods=['GET'])
 def get_status():
@@ -42,10 +33,22 @@ def get_alliance_totals(alliance_name):
     totals_list = reports_collection.get_alliance_totals(alliance_name)
     return jsonify(totals_list)
 
+@app.route('/apikey/', methods=['POST'])
+def apikey_create():
+    data = json.loads(request.data)
+    result = reports_collection.add_apikey(data['player'], data['key'])
+    if result:
+        return ("success", 200)
+    else:
+        raise errors.DatabaseError("Failed to save key")
+
+@app.route('/player/<id>/apikey', methods=['GET'])
+def get_apikey(id):
+    key = reports_collection.get_apikey(id)
+    return jsonify({'key': key}) if len(key) > 0 else jsonify({'key':"no key exists"})
+
+
 if __name__ == '__main__':
-    reports_collection.insert_units()
-    thread1 = threading.Thread(target = player_update_daemon)
-    thread1.setDaemon(True)
-    thread1.start()
-    app.run(debug=True)
+    print "App running, database host: %s" % host
+    app.run(debug=True, host=apphost)
 

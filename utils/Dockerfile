@@ -5,4 +5,4 @@ WORKDIR /src
 ADD requirements.txt /src/
 RUN pip install -r requirements.txt
 ADD . /src/
-CMD python server.py
+CMD python combat-update-daemon.py

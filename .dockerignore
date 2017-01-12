@@ -1,0 +1,5 @@
+password.txt
+utils/
+*.yml
+*.yaml
+username.txt

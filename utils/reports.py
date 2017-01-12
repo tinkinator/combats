@@ -41,6 +41,7 @@ def get_all_reports(player, rcoll):
         else:
             comdate = datetime.strptime(comdate_str, '%Y-%m-%dT%H:%M:%S')
         file_url = 'http://elgea.illyriad.co.uk/external/combatreport/%s' % combatkey
+        filename = combatkey
         if comdate >= datetime.strptime("2015-09-01", '%Y-%m-%d'):
             if rcoll.check_combat_record(combatguid):
                 print "adding new combat %s" % comdate
@@ -509,21 +510,8 @@ class ReportCollection(object):
         result = self.cursor.fetchall()
         return result
 
-
     def add_apikey(self, player_id, key):
-        try:
-            self.cursor.execute(
-                "UPDATE players SET api_key = %s WHERE player_id = %s", (key, player_id)
-            )
-            self.cnx.commit()
-            return True
-        except:
-            return False
-
-
-    def get_apikey(self, player_id):
         self.cursor.execute(
-            "SELECT api_key FROM players WHERE player_id = %s", (player_id,)
+            "UPDATE players SET api_key = %s WHERE player_id=%s", (key, player_id)
         )
-        return self.cursor.fetchone()[0]
-
+        self.cnx.commit()

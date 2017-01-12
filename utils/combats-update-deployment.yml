@@ -1,20 +1,20 @@
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: combats
+  name: combats-update
 spec:
   strategy:
     type: Recreate
   template:
     metadata:
-      name: combats
+      name: combats-update
       labels:
-        app: combats
+        app: combats-update
         tier: frontend
     spec:
       containers:
-      - name: combats
-        image: gcr.io/strategos-151306/combats:0.1.0
+      - name: combats-update
+        image: gcr.io/strategos-151306/combats-upd-daemon:0.1.0
         env:
         - name: COMBATS_DB_HOST
           value: combats-mysql
@@ -23,25 +23,8 @@ spec:
             secretKeyRef:
               name: mysql-pass
               key: password.txt
-        - name: APPHOST
-          value: '0.0.0.0'
+        - name: UPDATE_TIMER
+          value: "300"
         ports:
         - containerPort: 5000
           name: combats
-
----
-
-apiVersion: v1
-kind: Service
-metadata:
-  name: combats-service
-spec:
-  selector:
-    app: combats
-    tier: frontend
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 5000
-
-
