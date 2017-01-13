@@ -156,7 +156,7 @@ def import_xml(filename, rc):
 class ReportCollection(object):
 
     def __init__(self, host='localhost', user='root', password=None):
-        print "Connecting to database, user: %s, host: %s, password: %s" %(user, host, password)
+        print "Connecting to database, user: %s, host: %s..." %(user, host)
         self.cnx = mysql.connector.connect(user=user, host=host, password=password)
         self.cursor = self.cnx.cursor(buffered=True)
         self._create_db()
@@ -179,6 +179,11 @@ class ReportCollection(object):
             else:
                 print err
                 exit(1)
+
+    def close(self):
+        self.cursor.close()
+        self.cnx.close()
+        print "Connection to database closed"
 
     def _create_tables(self):
         TABLES = {}
