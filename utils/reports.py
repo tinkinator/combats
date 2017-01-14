@@ -5,15 +5,13 @@ import urllib2
 from datetime import datetime
 
 
-def get_all_reports(player, rcoll):
-
-    import urllib2
+def import_reports(player, host, user, passwd):
     from datetime import datetime
-    the_player = rcoll.get_or_create_player(player)
-    id = the_player[0]
-    name = the_player[1]
-    api_key = the_player[3]
-    last_com_date = rcoll.get_last_comdate(id)
+    id = player[0]
+    name = player[1]
+    api_key = player[2]
+    last_com_date = player[4]
+    print last_com_date
 
     if last_com_date is not None:
         datestring = datetime.strftime(last_com_date, '%Y-%m-%dT%H:%M:%S')
@@ -41,12 +39,12 @@ def get_all_reports(player, rcoll):
         else:
             comdate = datetime.strptime(comdate_str, '%Y-%m-%dT%H:%M:%S')
         file_url = 'http://elgea.illyriad.co.uk/external/combatreport/%s' % combatkey
-        filename = combatkey
         if comdate >= datetime.strptime("2015-09-01", '%Y-%m-%d'):
+            rcoll = ReportCollection(host, user, passwd)
             if rcoll.check_combat_record(combatguid):
                 print "adding new combat %s" % comdate
                 f = urllib2.urlopen(file_url)
-                import_xml(f, rcoll)
+                import_xml(f, host, user, passwd)
 
 
 def humanplayer(participant):
@@ -63,9 +61,10 @@ def casualties(root):
         return True
 
 
-def import_xml(filename, rc):
+def import_xml(filename, host, user, passwd):
     tree = ET.parse(filename)
     root = tree.getroot()
+    rc = ReportCollection(host, user, passwd)
     participants = root.findall(".//*unitname/../../../../../../..")
 
     for p in participants:
@@ -152,12 +151,12 @@ def import_xml(filename, rc):
                     unit_quantity,
                     unit_casualties
                 )
-    return rc
+    rc.close()
 
 class ReportCollection(object):
 
     def __init__(self, host='localhost', user='root', password=None):
-        print "Connecting to database, user: %s, host: %s, password: %s" %(user, host, password)
+        print "Connecting to database, user: %s, host: %s..." %(user, host)
         self.cnx = mysql.connector.connect(user=user, host=host, password=password)
         self.cursor = self.cnx.cursor(buffered=True)
         self._create_db()
@@ -180,6 +179,11 @@ class ReportCollection(object):
             else:
                 print err
                 exit(1)
+
+    def close(self):
+        self.cursor.close()
+        self.cnx.close()
+        print "Connection to database closed"
 
     def _create_tables(self):
         TABLES = {}
@@ -510,8 +514,33 @@ class ReportCollection(object):
         result = self.cursor.fetchall()
         return result
 
+
     def add_apikey(self, player_id, key):
+        try:
+            self.cursor.execute(
+                "UPDATE players SET api_key = %s WHERE player_id = %s", (key, player_id)
+            )
+            self.cnx.commit()
+            return True
+        except:
+            return False
+
+
+    def get_apikey(self, player_id):
         self.cursor.execute(
-            "UPDATE players SET api_key = %s WHERE player_id=%s", (key, player_id)
+            "SELECT api_key FROM players WHERE player_id = %s", (player_id,)
         )
-        self.cnx.commit()
+        return self.cursor.fetchone()[0]
+
+    def get_players(self, alliance=None):
+        if alliance is None:
+            self.cursor.execute(
+                "SELECT DISTINCT pl.player_id, pl.player_name, pl.api_key, pl.alliance, com.com_datetime "
+                " FROM players as pl LEFT OUTER JOIN "
+                "(SELECT player_id, com_datetime FROM combat_details "
+                "WHERE com_datetime = (SELECT MAX(com_datetime) FROM combat_details)) AS com "
+                "ON pl.player_id = com.player_id"
+            )
+            result = self.cursor.fetchall()
+            return result
+
