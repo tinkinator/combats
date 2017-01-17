@@ -303,7 +303,7 @@ class ReportCollection(object):
             try:
                 unit_type = self.cursor.fetchone()[0]
             except:
-                unit_type = ""
+                unit_type = "Unknown"
             self.cursor.execute("SET foreign_key_checks = 0")
             update_report_set = [
 
@@ -465,6 +465,60 @@ class ReportCollection(object):
                 result_dict[result[i][0]]['Participants'].append(participant)
         return result_dict
 
+    def last_week_topten(self, alliance):
+        sql = '''
+                CREATE TEMPORARY TABLE IF NOT EXISTS temp ENGINE=INNODB
+                AS (
+                SELECT com_id, SUM(unit_casualties) AS casualties
+                FROM combat_details
+                WHERE YEAR(com_datetime) = YEAR(CURDATE()) AND MONTH(com_datetime) = MONTH(CURDATE())
+                GROUP BY com_id
+                ORDER BY casualties DESC LIMIT 10);
+                SELECT combat_details.com_id, com_datetime, mapx, mapy, player_name, role, unit_type, SUM(unit_quantity), SUM(unit_casualties), temp.casualties
+                FROM combat_details
+                RIGHT JOIN temp ON combat_details.com_id = temp.com_id
+                WHERE combat_details.com_id IN
+                (SELECT com_id FROM combat_details WHERE alliance = %s)
+                GROUP BY combat_details.com_id, player_name, unit_type
+                ORDER BY temp.casualties DESC''' % alliance
+
+        res = self.cursor.execute(sql, multi=True)
+        for cur in res:
+            if cur.with_rows:
+                res = cur.fetchall()
+        result = []
+        for row in res:
+            print row
+            key = row[0]
+            player = row[4]
+            utype = row[6]
+            details = {
+                        'Count': int(row[7]),
+                        'Casualties': int(row[8])
+                    }
+            idx = len(result) - 1
+            if len(result) == 0 or result[idx].keys()[0] != key:
+                newDict= {
+                    'Date': datetime.strftime(row[1], '%m-%d-%Y %H:%M:%S'),
+                    'Total': int(row[9]),
+                    'Coords': {'X': row[2], 'Y': row[3]},
+                    'Players': {
+                        player: {'Units':{utype: details}, 'Role': row[5]}}}
+                result.append({key:newDict})
+            else:
+                if key == result[idx].keys()[0]:
+                    if player in result[idx][key]['Players']:
+                        if utype in result[idx][key]['Players'][player]['Units']:
+                            result[idx][key]['Players'][player]['Units'][utype]['Count'] += int(row[6])
+                            result[idx][key]['Players'][player]['Units'][utype]['Casualties'] += int(row[7])
+                        else:
+                            result[idx][key]['Players'][player]['Units'][utype] = details
+                    else:
+                        result[idx][key]['Players'][player] = {
+                            'Units': {utype: details}, 'Role': row[5]
+                        }
+        return result
+
     def get_alliance_totals(self, alliance):
         self.cursor.execute(
             "SELECT player.player_name, results.alliance, results.com_datetime, results.unit_type, "
@@ -481,22 +535,25 @@ class ReportCollection(object):
             ally = results[i][0]
             opponent = results[i][1]
             date = datetime.strftime(results[i][2], '%m-%d-%Y %H:%M:%S')
-            unit_type = results[i][3]
-            casualties = str(results[i][4])
+            unit_type = results[i][3] if results[i][3] != '' else 'Unknown'
+            casualties = int(results[i][4])
             if date not in result_dict:
                 newdict = {
-                    'Allies': [{'Player': ally}],
-                    'Opponents': [{'Player': opponent}],
-                    'Units': [{'Type': unit_type, 'Casualties': casualties}]
+                    'Allies': [ally],
+                    opponent: [{'Unit type': unit_type, 'Casualties': casualties}],
                 }
                 result_dict[date] = newdict
             else:
                 if ally not in result_dict[date]['Allies']:
                     result_dict[date]['Allies'].append(ally)
-                if opponent not in result_dict[date]['Opponents']:
-                    result_dict[date]['Opponents'].append(opponent)
-                if not any(unit_type in d for d in result_dict[date]['Units']):
-                    result_dict[date]['Units'].append({'Type': unit_type, 'Casualties': casualties})
+                if opponent not in result_dict[date]:
+                    result_dict[date][opponent] = [{'Unit type': unit_type, 'Casualties': casualties}]
+                else:
+                    for i in result_dict[date][opponent]:
+                        if i['Unit type'] == unit_type:
+                            i['Casualties'] += casualties
+                        else:
+                            result_dict[date][opponent].append({'Unit type': unit_type, 'Casualties': casualties})
         return result_dict
 
 
@@ -531,4 +588,17 @@ class ReportCollection(object):
             "SELECT api_key FROM players WHERE player_id = %s", (player_id,)
         )
         return self.cursor.fetchone()[0]
+
+    def upd_units(self):
+        try:
+            self.cursor.execute(
+                "LOAD DATA LOCAL INFILE 'illy_units.csv' REPLACE INTO TABLE units "
+                "COLUMNS TERMINATED BY ',' OPTIONALLY ENCLOSED BY \'\"\' "
+                "LINES TERMINATED BY '\n' IGNORE 1 LINES "
+                "(name, type, attack, xp, speed, def_spear, def_ranged, def_inf, def_cav, build_time);"
+            )
+            self.cnx.commit()
+            return "success"
+        except mysql.connector.Error as err:
+            raise err
 

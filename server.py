@@ -36,13 +36,13 @@ def get_status():
     return jsonify({'Server running': "True"})
 
 
-@app.route('/combats/alliance/<alliance_name>', methods=['GET'])
+@app.route('/combats/weekly/<alliance_name>', methods=['GET'])
 def get_alliance_combats(alliance_name):
     try:
         combat_list = g.db.last_week_combat(alliance_name)
         return jsonify(combat_list)
     except Exception as e:
-        return str(e)
+        return jsonify({'Error': str(e)})
 
 
 @app.route('/combats/totals/<alliance_name>', methods=['GET'])
@@ -51,8 +51,15 @@ def get_alliance_totals(alliance_name):
         totals_list = g.db.get_alliance_totals(alliance_name)
         return jsonify(totals_list)
     except Exception as e:
-        return str(e)
+        return jsonify({'Error': str(e)})
 
+@app.route('/combats/topten/<alliance_name>', methods=['GET'])
+def get_alliance_topten(alliance_name):
+    try:
+        topten_list = g.db.last_week_topten(alliance_name)
+        return jsonify({'list': topten_list})
+    except Exception as e:
+        return jsonify({'Error': str(e)})
 
 @app.route('/apikey/', methods=['POST'])
 def apikey_create():
@@ -64,7 +71,7 @@ def apikey_create():
         else:
             raise errors.DatabaseError("Failed to save key")
     except Exception as e:
-        return str(e)
+        return jsonify({'Error': str(e)})
 
 
 @app.route('/player/<id>/apikey', methods=['GET'])
@@ -73,7 +80,17 @@ def get_apikey(id):
         key = g.db.get_apikey(id)
         return jsonify({'key': key}) if len(key) > 0 else jsonify({'key':"no key exists"})
     except Exception as e:
-        return str(e)
+        return jsonify({'Error': str(e)})
+
+@app.route('/dbupd/', methods=['GET'])
+def update():
+    try:
+        r = g.db.upd_units()
+        print "Update success"
+        return jsonify({'Update': r})
+    except Exception as e:
+        print str(e)
+        return jsonify({'Error': str(e)})
 
 
 if __name__ == '__main__':
