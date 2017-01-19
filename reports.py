@@ -1,157 +1,7 @@
 import mysql.connector
 from mysql.connector import errorcode
-import xml.etree.ElementTree as ET
-import urllib2
 from datetime import datetime
 
-
-def get_all_reports(player, rcoll):
-
-    import urllib2
-    from datetime import datetime
-    the_player = rcoll.get_or_create_player(player)
-    id = the_player[0]
-    name = the_player[1]
-    api_key = the_player[3]
-    last_com_date = rcoll.get_last_comdate(id)
-
-    if last_com_date is not None:
-        datestring = datetime.strftime(last_com_date, '%Y-%m-%dT%H:%M:%S')
-        file_url = 'http://elgea.illyriad.co.uk/external/combatreportsapi/%s?since=%s' % (api_key, datestring)
-    else:
-        print "No combats in DB for %s, downloading new XML file!" % name
-        file_url = 'http://elgea.illyriad.co.uk/external/combatreportsapi/%s' % api_key
-
-    reports_file = urllib2.urlopen(file_url)
-    tree = ET.ElementTree(file=reports_file)
-    root = tree.getroot()
-    if root.tag == 'errormsg':
-        print root.text
-        return
-    reports = root.findall(".//*combatguid/..")
-    if len(reports) < 1:
-        print "No new combats!"
-        return
-    for report in reports:
-        combatkey = report.find('personalcombatkey').get('id')
-        combatguid = report.find('combatguid').get('id')
-        comdate_str = report.find('combatoccurrencedate').text
-        if len(comdate_str) == 23:
-            comdate = datetime.strptime(comdate_str[0:-4], '%Y-%m-%dT%H:%M:%S')
-        else:
-            comdate = datetime.strptime(comdate_str, '%Y-%m-%dT%H:%M:%S')
-        file_url = 'http://elgea.illyriad.co.uk/external/combatreport/%s' % combatkey
-        if comdate >= datetime.strptime("2015-09-01", '%Y-%m-%d'):
-            if rcoll.check_combat_record(combatguid):
-                print "adding new combat %s" % comdate
-                f = urllib2.urlopen(file_url)
-                import_xml(f, rcoll)
-
-
-def humanplayer(participant):
-    """determine whether participant is a human player or an NPC"""
-    player_id = participant.find('player').find('playername').get('id')
-    if player_id != "-1":
-        return True
-    return False
-
-
-def casualties(root):
-    casualties = root.findall(".//*unitcasualties")
-    if len(casualties) > 0:
-        return True
-
-
-def import_xml(filename, rc):
-    tree = ET.parse(filename)
-    root = tree.getroot()
-    participants = root.findall(".//*unitname/../../../../../../..")
-
-    for p in participants:
-        com_id = root.find('uniquecombatidentifier').find(
-            'combatguid').get('id')
-        com_datetime = root.find('uniquecombatidentifier').find(
-            'troopmovementevent').get('occurrence_datetime')
-        mapx = int(root.find('combatoverview').find('location').find('X').text)
-        mapy = int(root.find('combatoverview').find('location').find('Y').text)
-        terrain = root.find('combatoverview').find(
-            'location').find('terraincombattype').text
-        div_unit = p.findall(".//*unitname/..")
-        role = p.find('role').text
-        # get all participants and enter each into db
-        if humanplayer(p) and casualties(root):
-            player_id = int(p.find('player').find('playername').get('id'))
-            player_name = p.find('player').find('playername').text
-            player_alliance = p.find('player').find(
-                'alliance').find('allianceticker').text
-            town_id = int(p.find('player').find('troopsfromtown').get('id'))
-            town_name = p.find('player').find('troopsfromtown').text
-
-            for u in div_unit:
-                army_name = p.find('armies').find('army').find('armyname').text
-                div_name = p.find('armies').find('army').find(
-                    'divisions').find('division').find('divisionname').text
-                div_id = p.find('armies').find('army').find(
-                    'divisions').find('division').find('divisionname').get('id')
-                unit_id = div_unit.index(u)
-                unit_name = u.find('unitname').text
-                unit_quantity = int(u.find('unitquantity').text)
-                unit_casualties = int(u.find('unitcasualties').text)
-                rc.add_report(
-                    com_id,
-                    com_datetime,
-                    mapx,
-                    mapy,
-                    terrain,
-                    player_id,
-                    player_name,
-                    player_alliance,
-                    role,
-                    town_id,
-                    town_name,
-                    div_id,
-                    div_name,
-                    unit_id,
-                    unit_name,
-                    unit_quantity,
-                    unit_casualties
-                )
-
-        elif casualties(root) and not humanplayer(p):
-            player_id = '-1'
-            player_name = 'NPC'
-            player_alliance = 'NPC'
-            town_id = '-1'
-            town_name = 'NPC'
-            for u in div_unit:
-                army_name = p.find('armies').find('army').find('armyname').text
-                div_name = ''
-                div_id = p.find('armies').find('army').find(
-                    'divisions').find('division').find('divisionname').get('id')
-                unit_id = div_unit.index(u)
-                unit_name = u.find('unitname').text
-                unit_quantity = int(u.find('unitquantity').text)
-                unit_casualties = int(u.find('unitcasualties').text)
-                rc.add_report(
-                    com_id,
-                    com_datetime,
-                    mapx,
-                    mapy,
-                    terrain,
-                    player_id,
-                    player_name,
-                    player_alliance,
-                    role,
-                    town_id,
-                    town_name,
-                    div_id,
-                    div_name,
-                    unit_id,
-                    unit_name,
-                    unit_quantity,
-                    unit_casualties
-                )
-    return rc
 
 class ReportCollection(object):
 
@@ -289,7 +139,9 @@ class ReportCollection(object):
         unit_id,
         unit_name,
         unit_quantity,
-        unit_casualties
+        unit_casualties,
+        stratagem,
+        duration
     ):
         self.cursor.execute(
             "SELECT COUNT(*) FROM combat_details WHERE com_id = %s and div_id = %s and unit_id = %s", (com_id, div_id, unit_id))
@@ -315,8 +167,8 @@ class ReportCollection(object):
                     "INSERT IGNORE INTO combat_details (com_id, "
                     "com_datetime, mapx, mapy, terrain, player_id, player_name, alliance, role, "
                     "town_id, town_name, div_id, div_name, "
-                    "unit_id, unit_name, unit_type, unit_quantity, unit_casualties) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
+                    "unit_id, unit_name, unit_type, unit_quantity, unit_casualties, stratagem, duration) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
                         com_id,
                         com_datetime,
                         mapx,
@@ -334,7 +186,9 @@ class ReportCollection(object):
                         unit_name,
                         unit_type,
                         unit_quantity,
-                        unit_casualties
+                        unit_casualties,
+                        stratagem,
+                        duration
                     )
                 ),
 
@@ -366,6 +220,36 @@ class ReportCollection(object):
             result = self.cursor.fetchall()
         return result[0]
 
+# Methods for managing players and their API keys
+    def get_players(self):
+        self.cursor.execute(
+            "SELECT * FROM players"
+        )
+        result = self.cursor.fetchall()
+        result_dict = {'Players': []}
+        for i in result:
+            newdict = {'Id': i[0], 'Name': i[1], 'Alliance': i[2], 'Key': i[3]}
+            result_dict['Players'].append(newdict)
+        return result_dict
+
+
+    def add_apikey(self, player_id, key):
+        try:
+            self.cursor.execute(
+                "UPDATE players SET api_key = %s WHERE player_id = %s", (key, player_id)
+            )
+            self.cnx.commit()
+            return True
+        except:
+            return False
+
+
+    def get_apikey(self, player_id):
+        self.cursor.execute(
+            "SELECT api_key FROM players WHERE player_id = %s", (player_id,)
+        )
+        return self.cursor.fetchone()[0]
+
 
     def get_last_comdate(self, id):
         self.cursor.execute(
@@ -379,40 +263,8 @@ class ReportCollection(object):
             return result[0]
         return result
 
-    def update_player(self, data_gen_date, town_id, last_date_pl, player_id, player_name, alliance):
-        self.cursor.execute("SET foreign_key_checks = 0")
-        update_town_set = [
-            (
-                "UPDATE towns SET last_seen_on = %s WHERE town_id = %s",
-                (data_gen_date, town_id)
-            ),
-            (
-                "UPDATE history_player SET end_date = %s WHERE town_id = %s "
-                "AND start_date = %s "
-                "AND NOT EXISTS (select * from (select town_id, start_date from history_player where start_date = %s and town_id = %s) as t)",
-                (data_gen_date, town_id, last_date_pl, data_gen_date, town_id)
-            ),
-            (
-                "INSERT IGNORE INTO history_player"
-                "(town_id, player_id, player_name, alliance, start_date) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (town_id, player_id, player_name, alliance, data_gen_date)
-            )
-        ]
-        for (cmd, args) in update_town_set:
-            self.cursor.execute(cmd, args)
-            self.cnx.commit()
 
-    def check_combat_record(self, combatguid):
-        self.cursor.execute(
-            "SELECT * FROM combat_details "
-            "WHERE com_id = %s",
-            (combatguid,)
-        )
-        results = self.cursor.fetchall()
-        if len(results) == 0:
-            return True
-
+# Combat data queries
     def get_hunt_results(self, player_name, start_date):
         self.cursor.execute(
             "SELECT com_datetime, unit_name, "
@@ -429,6 +281,7 @@ class ReportCollection(object):
         results = self.cursor.fetchall()
         return results
 
+
     def get_alliance_casualties_detailed(self, alliance, start_date, end_date):
         self.cursor.execute(
             "SELECT com_datetime, player_name, role, town_name, unit_name, "
@@ -440,6 +293,7 @@ class ReportCollection(object):
         )
         result = self.cursor.fetchall()
         return result
+
 
     def last_week_combat(self, alliance):
         self.cursor.execute(
@@ -464,6 +318,7 @@ class ReportCollection(object):
                 participant = {'Player': result[i][4], 'Role': result[i][5], 'Unit type': result[i][6], 'Quantity': str(result[i][7]), 'Casualties': str(result[i][8])}
                 result_dict[result[i][0]]['Participants'].append(participant)
         return result_dict
+
 
     def last_week_topten(self, alliance):
         sql = '''
@@ -519,6 +374,7 @@ class ReportCollection(object):
                         }
         return result
 
+
     def get_alliance_totals(self, alliance):
         self.cursor.execute(
             "SELECT player.player_name, results.alliance, results.com_datetime, results.unit_type, "
@@ -572,22 +428,17 @@ class ReportCollection(object):
         return result
 
 
-    def add_apikey(self, player_id, key):
-        try:
-            self.cursor.execute(
-                "UPDATE players SET api_key = %s WHERE player_id = %s", (key, player_id)
-            )
-            self.cnx.commit()
-            return True
-        except:
-            return False
-
-
-    def get_apikey(self, player_id):
+# Helper methods
+    def check_combat_record(self, combatguid):
         self.cursor.execute(
-            "SELECT api_key FROM players WHERE player_id = %s", (player_id,)
+            "SELECT * FROM combat_details "
+            "WHERE com_id = %s",
+            (combatguid,)
         )
-        return self.cursor.fetchone()[0]
+        results = self.cursor.fetchall()
+        if len(results) == 0:
+            return True
+
 
     def upd_units(self):
         try:

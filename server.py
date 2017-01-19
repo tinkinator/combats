@@ -82,6 +82,30 @@ def get_apikey(id):
     except Exception as e:
         return jsonify({'Error': str(e)})
 
+
+@app.route('/players/', methods=['POST'])
+def create_player():
+    data = json.loads(request.data)
+    try:
+        result = g.db.get_or_create_player(data)
+        if result:
+            return jsonify({'Result': result})
+        else:
+            raise errors.DatabaseError("Failed to save player")
+    except Exception as e:
+        return jsonify({'Error': str(e)})
+
+
+@app.route('/players/', methods=['GET'])
+def show_players():
+    try:
+        result = g.db.get_players()
+        if result:
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({'Error': str(e)})
+
+
 @app.route('/dbupd/', methods=['GET'])
 def update():
     try:

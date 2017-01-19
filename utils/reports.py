@@ -66,16 +66,22 @@ def import_xml(filename, host, user, passwd):
     root = tree.getroot()
     rc = ReportCollection(host, user, passwd)
     participants = root.findall(".//*unitname/../../../../../../..")
-
+    com_id = root.find('uniquecombatidentifier').find(
+        'combatguid').get('id')
+    com_datetime = root.find('uniquecombatidentifier').find(
+        'troopmovementevent').get('occurrence_datetime')
+    duration = 0
+    if root.find('combatoverview').find('stratagem').find('feint').text == 'No':
+        stratagem = root.find('combatoverview').find('stratagem').find('armyaction').text
+    else:
+        stratagem = 'Feinting'
+    if stratagem != 'Attacking' and stratagem != 'Feinting':
+        duration = int(root.find('combatoverview').find('datetime').find('occupationlengthsecs').text)
+    mapx = int(root.find('combatoverview').find('location').find('X').text)
+    mapy = int(root.find('combatoverview').find('location').find('Y').text)
+    terrain = root.find('combatoverview').find(
+        'location').find('terraincombattype').text
     for p in participants:
-        com_id = root.find('uniquecombatidentifier').find(
-            'combatguid').get('id')
-        com_datetime = root.find('uniquecombatidentifier').find(
-            'troopmovementevent').get('occurrence_datetime')
-        mapx = int(root.find('combatoverview').find('location').find('X').text)
-        mapy = int(root.find('combatoverview').find('location').find('Y').text)
-        terrain = root.find('combatoverview').find(
-            'location').find('terraincombattype').text
         div_unit = p.findall(".//*unitname/..")
         role = p.find('role').text
         # get all participants and enter each into db
@@ -114,7 +120,9 @@ def import_xml(filename, host, user, passwd):
                     unit_id,
                     unit_name,
                     unit_quantity,
-                    unit_casualties
+                    unit_casualties,
+                    stratagem,
+                    duration
                 )
 
         elif casualties(root) and not humanplayer(p):
@@ -149,7 +157,9 @@ def import_xml(filename, host, user, passwd):
                     unit_id,
                     unit_name,
                     unit_quantity,
-                    unit_casualties
+                    unit_casualties,
+                    stratagem,
+                    duration
                 )
     rc.close()
 
@@ -289,7 +299,9 @@ class ReportCollection(object):
         unit_id,
         unit_name,
         unit_quantity,
-        unit_casualties
+        unit_casualties,
+        stratagem,
+        duration
     ):
         self.cursor.execute(
             "SELECT COUNT(*) FROM combat_details WHERE com_id = %s and div_id = %s and unit_id = %s", (com_id, div_id, unit_id))
@@ -315,8 +327,8 @@ class ReportCollection(object):
                     "INSERT IGNORE INTO combat_details (com_id, "
                     "com_datetime, mapx, mapy, terrain, player_id, player_name, alliance, role, "
                     "town_id, town_name, div_id, div_name, "
-                    "unit_id, unit_name, unit_type, unit_quantity, unit_casualties) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
+                    "unit_id, unit_name, unit_type, unit_quantity, unit_casualties, stratagem, duration) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
                         com_id,
                         com_datetime,
                         mapx,
@@ -334,7 +346,9 @@ class ReportCollection(object):
                         unit_name,
                         unit_type,
                         unit_quantity,
-                        unit_casualties
+                        unit_casualties,
+                        stratagem,
+                        duration
                     )
                 ),
 
@@ -535,10 +549,10 @@ class ReportCollection(object):
     def get_players(self, alliance=None):
         if alliance is None:
             self.cursor.execute(
-                "SELECT DISTINCT pl.player_id, pl.player_name, pl.api_key, pl.alliance, com.com_datetime "
-                " FROM players as pl LEFT OUTER JOIN "
-                "(SELECT player_id, com_datetime FROM combat_details "
-                "WHERE com_datetime = (SELECT MAX(com_datetime) FROM combat_details)) AS com "
+                "SELECT DISTINCT pl.player_id, pl.player_name, pl.api_key, pl.alliance, com.last_date "
+                "FROM players as pl LEFT JOIN "
+                "(SELECT player_id, MAX(com_datetime) AS last_date FROM combat_details "
+                "GROUP BY player_id) AS com "
                 "ON pl.player_id = com.player_id"
             )
             result = self.cursor.fetchall()
