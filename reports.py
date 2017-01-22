@@ -322,21 +322,27 @@ class ReportCollection(object):
 
     def last_week_topten(self, alliance):
         sql = '''
-                CREATE TEMPORARY TABLE IF NOT EXISTS temp ENGINE=INNODB
-                AS (
-                SELECT com_id, SUM(unit_casualties) AS casualties
-                FROM combat_details
-                WHERE YEAR(com_datetime) = YEAR(CURDATE()) AND MONTH(com_datetime) = MONTH(CURDATE())
-                GROUP BY com_id
-                ORDER BY casualties DESC LIMIT 10);
-                SELECT combat_details.com_id, com_datetime, mapx, mapy, player_name, role, unit_type, SUM(unit_quantity), SUM(unit_casualties), temp.casualties
-                FROM combat_details
-                RIGHT JOIN temp ON combat_details.com_id = temp.com_id
-                WHERE combat_details.com_id IN
-                (SELECT com_id FROM combat_details WHERE alliance = %s)
-                GROUP BY combat_details.com_id, player_name, unit_type
-                ORDER BY temp.casualties DESC''' % alliance
-
+                DROP TABLE IF EXISTS table1;
+                CREATE TABLE table1 AS (
+                SELECT DISTINCT com.com_id, com.player_name FROM combat_details AS com
+                RIGHT JOIN (
+                SELECT player_name FROM players WHERE alliance = "%s")
+                AS pl ON com.player_name = pl.player_name
+                WHERE YEAR(com.com_datetime) = YEAR(CURDATE()) AND MONTH(com.com_datetime) = MONTH(CURDATE()));
+                DROP TABLE IF EXISTS table2;
+                CREATE TABLE table2 AS(
+                SELECT coms.com_id, table1.player_name, SUM(coms.unit_casualties) AS casualties
+                FROM combat_details as coms
+                RIGHT JOIN table1 ON table1.com_id = coms.com_id
+                GROUP BY coms.com_id ORDER BY casualties DESC LIMIT 10
+                );
+                SELECT c.com_id, c.com_datetime, c.mapx, c.mapy, c.player_name AS enemy,
+                c.role, c.unit_type, SUM(c.unit_quantity), SUM(c.unit_casualties), table2.casualties
+                FROM combat_details AS c
+                JOIN table2 ON c.com_id = table2.com_id
+                GROUP BY com_id, enemy, unit_type
+                ORDER BY casualties DESC;''' % alliance
+        print sql
         res = self.cursor.execute(sql, multi=True)
         for cur in res:
             if cur.with_rows:
@@ -376,41 +382,46 @@ class ReportCollection(object):
 
 
     def get_alliance_totals(self, alliance):
-        self.cursor.execute(
-            "SELECT player.player_name, results.alliance, results.com_datetime, results.unit_type, "
-            "SUM(results.unit_casualties) FROM combat_details AS results LEFT JOIN "
-            "(SELECT DISTINCT player_name, com_datetime FROM combat_details "
-            "WHERE alliance=%s) AS player ON results.com_datetime = player.com_datetime "
-            "WHERE results.alliance != %s AND YEARWEEK(results.com_datetime) = YEARWEEK(NOW()) "
-            "GROUP BY results.com_datetime, results.player_name, results.unit_type", (alliance, alliance)
-        )
-        results = self.cursor.fetchall()
-        print results
-        result_dict = {}
-        for i in range(0, len(results)):
-            ally = results[i][0]
-            opponent = results[i][1]
-            date = datetime.strftime(results[i][2], '%m-%d-%Y %H:%M:%S')
-            unit_type = results[i][3] if results[i][3] != '' else 'Unknown'
-            casualties = int(results[i][4])
-            if date not in result_dict:
-                newdict = {
-                    'Allies': [ally],
-                    opponent: [{'Unit type': unit_type, 'Casualties': casualties}],
-                }
-                result_dict[date] = newdict
-            else:
-                if ally not in result_dict[date]['Allies']:
-                    result_dict[date]['Allies'].append(ally)
-                if opponent not in result_dict[date]:
-                    result_dict[date][opponent] = [{'Unit type': unit_type, 'Casualties': casualties}]
+        sql = '''
+                DROP TABLE IF EXISTS table1;
+                CREATE TEMPORARY TABLE table1 AS
+                (SELECT DISTINCT pl.player_name as player, com.com_id FROM players as pl JOIN combat_details as com
+                ON pl.player_name=com.player_name WHERE pl.alliance = "%s"
+                );
+                SELECT table1.player, c.player_name as enemy, c.unit_type, SUM(c.unit_casualties) FROM combat_details
+                AS c RIGHT JOIN table1 ON c.com_id = table1.com_id WHERE c.player_name != table1.player AND
+                YEARWEEK(c.com_datetime) = YEARWEEK(NOW())
+                GROUP BY player, enemy, c.unit_type''' % alliance
+        print sql
+        try:
+            res = self.cursor.execute(sql, multi=True)
+            for cur in res:
+                if cur.with_rows:
+                    results = self.cursor.fetchall()
+            print results
+            result_dict = {'Players': {}}
+            for i in range(0, len(results)):
+                ally = results[i][0]
+                enemy = results[i][1]
+                unit_type = results[i][2] if results[i][2] != '' else 'Unknown'
+                casualties = int(results[i][3])
+                if ally not in result_dict['Players'].keys():
+                    result_dict['Players'][ally] = {'Enemies': {enemy: {'Units': {unit_type: casualties}}}, 'Total': casualties}
                 else:
-                    for i in result_dict[date][opponent]:
-                        if i['Unit type'] == unit_type:
-                            i['Casualties'] += casualties
-                        else:
-                            result_dict[date][opponent].append({'Unit type': unit_type, 'Casualties': casualties})
-        return result_dict
+                    result_dict['Players'][ally]['Total'] += casualties
+                    if enemy not in result_dict['Players'][ally]['Enemies'].keys():
+                        result_dict['Players'][ally]['Enemies'][enemy] = {'Units': {unit_type: casualties}}
+                    else:
+                        if unit_type not in result_dict['Players'][ally]['Enemies'][enemy]['Units'].keys():
+                            result_dict['Players'][ally]['Enemies'][enemy]['Units'][unit_type] = casualties
+            return result_dict
+            self.cnx.commit()
+        except:
+            print self.cursor.statement
+
+
+
+
 
 
     def get_player_kills(self, player_Id, start_date, end_date):

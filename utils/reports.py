@@ -11,6 +11,9 @@ def import_reports(player, host, user, passwd):
     name = player[1]
     api_key = player[2]
     last_com_date = player[4]
+    thunderdome = False
+    if player[3] == 'Thunderdome':
+        thunderdome = True
     print last_com_date
 
     if last_com_date is not None:
@@ -44,7 +47,7 @@ def import_reports(player, host, user, passwd):
             if rcoll.check_combat_record(combatguid):
                 print "adding new combat %s" % comdate
                 f = urllib2.urlopen(file_url)
-                import_xml(f, host, user, passwd)
+                import_xml(f, host, user, passwd, thunderdome)
 
 
 def humanplayer(participant):
@@ -61,7 +64,7 @@ def casualties(root):
         return True
 
 
-def import_xml(filename, host, user, passwd):
+def import_xml(filename, host, user, passwd, thunderdome):
     tree = ET.parse(filename)
     root = tree.getroot()
     rc = ReportCollection(host, user, passwd)
@@ -88,10 +91,19 @@ def import_xml(filename, host, user, passwd):
         if humanplayer(p) and casualties(root):
             player_id = int(p.find('player').find('playername').get('id'))
             player_name = p.find('player').find('playername').text
-            player_alliance = p.find('player').find(
-                'alliance').find('allianceticker').text
+            if not thunderdome:
+                player_alliance = p.find('player').find(
+                    'alliance').find('allianceticker').text
+            else:
+                player_alliance = 'Thunderdome'
             town_id = int(p.find('player').find('troopsfromtown').get('id'))
             town_name = p.find('player').find('troopsfromtown').text
+
+            if thunderdome and not valid_thunderdome_coords(mapx, mapy):
+                print "Found combat, outside of Thunderdome!"
+                rc.close()
+                return
+
 
             for u in div_unit:
                 army_name = p.find('armies').find('army').find('armyname').text
@@ -162,6 +174,10 @@ def import_xml(filename, host, user, passwd):
                     duration
                 )
     rc.close()
+
+
+def valid_thunderdome_coords(x, y):
+    return x in range(604, 655) and y in range(-2495, -2446)
 
 class ReportCollection(object):
 
@@ -303,6 +319,7 @@ class ReportCollection(object):
         stratagem,
         duration
     ):
+        print "Combat: %s, %s, %s, %s, %s" % (player_name, player_alliance, mapx, mapy, unit_name)
         self.cursor.execute(
             "SELECT COUNT(*) FROM combat_details WHERE com_id = %s and div_id = %s and unit_id = %s", (com_id, div_id, unit_id))
         result = self.cursor.fetchone()

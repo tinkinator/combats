@@ -35,7 +35,6 @@ def handle_database_error(error):
 def get_status():
     return jsonify({'Server running': "True"})
 
-
 @app.route('/combats/weekly/<alliance_name>', methods=['GET'])
 def get_alliance_combats(alliance_name):
     try:
