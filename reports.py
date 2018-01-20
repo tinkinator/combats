@@ -380,7 +380,6 @@ class ReportCollection(object):
                         }
         return result
 
-
     def get_alliance_totals(self, alliance):
         sql = '''
                 DROP TABLE IF EXISTS table1;
@@ -419,10 +418,37 @@ class ReportCollection(object):
         except:
             print self.cursor.statement
 
-
-
-
-
+    def get_siege_data(self, sieges):
+        print "Getting siege data from %s" % sieges
+        start = sieges['start']
+        print "Start: %s" % start
+        combats = {}
+        for coords in sieges['coordinates']:
+            print coords
+            squarename = coords[2]
+            sql = '''
+                    SET @dt = "%s";
+                    SELECT com_id, com_datetime, player_name, alliance, role, unit_name, unit_type,
+                    SUM(unit_quantity), SUM(unit_casualties) 
+                    FROM combat_details WHERE com_datetime >= @dt AND mapx = %s AND mapy = %s 
+                    GROUP BY com_id, player_name, unit_name''' % (start, coords[0], coords[1])
+            print sql
+            try:
+                res = self.cursor.execute(sql, multi=True)
+                for cur in res:
+                    if cur.with_rows:
+                        res = self.cursor.fetchall()
+                if len(res) > 0:
+                    result = self.process_query_result(res)
+                    print "Result: %s" %result
+                    if squarename not in combats:
+                        combats[squarename] = result
+            except Exception as e:
+                print "Error: %s" %e
+        if len(combats.items()) > 0:
+            return combats
+        else:
+            return "No combats were found at these coordinates"
 
     def get_player_kills(self, player_Id, start_date, end_date):
         self.cursor.execute(
@@ -450,7 +476,6 @@ class ReportCollection(object):
         if len(results) == 0:
             return True
 
-
     def upd_units(self):
         try:
             self.cursor.execute(
@@ -463,4 +488,32 @@ class ReportCollection(object):
             return "success"
         except mysql.connector.Error as err:
             raise err
+
+    def process_query_result(self, result):
+        print "processing query result"
+        print result
+        coms = {}
+        for i in range(0, len(result)):
+            id = result[i][0]
+            if id not in coms:
+                print "Id %s, datetime: %s" % (id, result[i][1])
+                coms[id] = {"Datetime":result[i][1], "Defenders": {}, "Attacker": {}}
+            player = result[i][2]
+            alliance = result[i][3]
+            role = result[i][4]
+            unitname = result[i][5]
+            unittype = result[i][6]
+            unitstotal = int(result[i][7])
+            casualties = int(result[i][8])
+            print player, alliance, role, unitname, unitstotal
+            if role == 'Defender':
+                if player not in coms[id]['Defenders'].keys():
+                    coms[id]['Defenders'][player] = {'alliance': alliance, "units": {unitname: [unittype, unitstotal, casualties]}}
+                else:
+                    coms[id]['Defenders'][player]["units"][unitname] = [unittype, unitstotal, casualties]
+            elif role == 'Attacker':
+                coms[id]['Attacker'][player] = {'alliance': alliance, "units": {unitname: [unitstotal, casualties]}}
+        return coms
+
+
 

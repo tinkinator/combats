@@ -115,6 +115,16 @@ def update():
         print str(e)
         return jsonify({'Error': str(e)})
 
+@app.route('/combats/sieges/', methods=['POST'])
+def get_siegecombats():
+    try:
+        sieges = json.loads(request.data)
+        print sieges
+        result = g.db.get_siege_data(sieges)
+        return jsonify({'Result': result})
+    except Exception as e:
+        print str(e)
+        return jsonify({'Error': str(e)})
 
 if __name__ == '__main__':
     print "App running, database host: %s" % host

@@ -319,7 +319,7 @@ class ReportCollection(object):
         stratagem,
         duration
     ):
-        print "Combat: %s, %s, %s, %s, %s" % (player_name, player_alliance, mapx, mapy, unit_name)
+        print "Combat: %s, %s, %s, %s, %s" % (player_name.encode('ascii', 'ignore'), player_alliance.encode('ascii', 'ignore'), mapx, mapy, unit_name.encode('ascii', 'ignore'))
         self.cursor.execute(
             "SELECT COUNT(*) FROM combat_details WHERE com_id = %s and div_id = %s and unit_id = %s", (com_id, div_id, unit_id))
         result = self.cursor.fetchone()
